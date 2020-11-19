@@ -15,4 +15,5 @@ int main() {
     List* BlockedList; BlockedList = List_Create();         // Blocked process queue
     List* SendWaitList; SendWaitList = List_Create();       // queue of processes waiting on a send operation
     List* ReceiveWaitList; ReceiveWaitList = List_Create(); // queue of processes waiting on a receive operation 
+    List* MessagesList; MessagesList = List_Create();       // list of messages sent by a process using send()
 }
