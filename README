@@ -1,0 +1,6 @@
+CMPT 300 Assignment 3
+Maintained by : Matthew JM Winailan
+Student ID: 301363123
+
+Design Decisions
+- Each process only keeps the lastest message sent to it.
