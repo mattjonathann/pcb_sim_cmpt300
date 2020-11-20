@@ -21,3 +21,8 @@ Design Decisions
   use 'E' to finish the currently running process, or use 'K' to kill the user's intended process
 
 - Init process cannot call blocking functions. Trying to do so will produce an error message.
+
+Known Bugs
+- There is something wrong with processes in queue priority 2
+  Creating them is fine, but other functions cant see that they are running.
+
