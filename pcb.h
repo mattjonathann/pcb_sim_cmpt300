@@ -44,6 +44,8 @@ void PCB_addMessageToList(int destinationPid, int sourcePid, char* messageString
 
 void PCB_printSendReplyText(int sourcePID, int destinationPID, char* message);
 
+void PCB_moveRunningProcessToBack();
+
 void PCB_init(List* P0list, List* P1list, List* P2list, List* receiveWait, List* blockedList, List* messagesList);
 
 int Create(int priority);
