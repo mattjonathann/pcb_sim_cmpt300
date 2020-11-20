@@ -3,4 +3,21 @@ Maintained by : Matthew JM Winailan
 Student ID: 301363123
 
 Design Decisions
+- Init process is immediately created on program startup, and placed in ready queue 2
+
 - Each process only keeps the lastest message sent to it.
+
+- Scheduling based on FCFS on 3 levels of priority.
+  Always finishes priority 0 first before going to 1 and 2. 
+  If a new process is added to 0, then that process is next to run.
+
+- When running a quantum, the process will go into the 'back' of its respective priority queue,
+  simulating a process which have not yet been completed.
+
+- The scheduling operation will go into a lower level queue only if its higher level queue is
+  empty
+
+- Using a quantum cannot finish a process. In order to finish a process, the user must either
+  use 'E' to finish the currently running process, or use 'K' to kill the user's intended process
+
+- Init process cannot call blocking functions. Trying to do so will produce an error message.

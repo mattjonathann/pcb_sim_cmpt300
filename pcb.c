@@ -4,17 +4,21 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include "list.h"
 #include "pcb.h"
+#define MAX_LEN 40
+
+extern bool initExited;
 
 static int processIDcount = 0;          // PID 0 reserved for Init process
 static List* pcbP0List;
 static List* pcbP1List;
 static List* pcbP2List;
 static List* pcbBlockedList;
-static List* pcbSendWaitList;
 static List* pcbReceiveWaitList;
 static List* pcbMessagesList;
+
 
 // bool runningCheck(void* pItem, void* pComparisonArg) {
 //     if (pItem == pComparisonArg) {
@@ -25,34 +29,162 @@ static List* pcbMessagesList;
 //     }
 // }
 
-void PCB_init(List* P0list, List* P1list, List* P2list, List* sendWait, List* receiveWait, List* blockedList, List* messagesList) {
+void PCB_makeProcessRun() {
+    bool found = false;
+    if (!found && List_count(pcbP0List) != 0) {
+        pcbP0List->pCurrentNode = pcbP0List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP0List); i++) {
+            pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
+            if ( currentItem->processState == 1) {
+                currentItem->processState = 0;
+                printf("Process pid %d from priority 0 queue is now running.\n", currentItem->pid);
+                found = true;
+                break;
+            }
+            pcbP0List->pCurrentNode = pcbP0List->pCurrentNode->pNext;
+        }
+    }
+    if (!found && List_count(pcbP1List) != 0) {
+        pcbP1List->pCurrentNode = pcbP1List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP1List); i++) {
+            pcb_t* currentItem = pcbP1List->pCurrentNode->pItem;
+            if ( currentItem->processState == 1) {
+                currentItem->processState = 0;
+                printf("Process pid %d from priority 1 queue is now running.\n", currentItem->pid);
+                found = true;
+                break;
+            }
+            pcbP1List->pCurrentNode = pcbP1List->pCurrentNode->pNext;
+        }
+    }
+    if (!found && List_count(pcbP2List) != 0) {
+        pcbP2List->pCurrentNode = pcbP2List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP2List); i++) {
+            pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
+            if ( currentItem->processState == 1) {
+                currentItem->processState = 0;
+                printf("Process pid %d from priority 2 queue is now running.\n", currentItem->pid);
+                found = true;
+                break;
+            }
+            pcbP2List->pCurrentNode = pcbP2List->pCurrentNode->pNext;
+        }
+    }
+    if (!found) {
+        printf("There are no ready processes waiting in any queue\n");
+    }
+}
+
+void PCB_findCurrentRunningProcess() {
+    int runningProcessFound = 0;
+
+    if (runningProcessFound == 0 && List_count(pcbP0List) != 0) {
+        // Searching High priority list for running process
+        List_first(pcbP0List);
+        for (int i = 0; i < List_count(pcbP0List); i++) {
+            pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
+            if ( currentItem->processState == 0) {
+                printf("Currently Running Process is : %d", currentItem->pid);
+                runningProcessFound = 1;
+                break;
+            }
+            List_next(pcbP0List);
+        }
+    }
+
+    if (runningProcessFound == 0 && List_count(pcbP1List) != 0) {
+        // Searching Med priority list for running process
+        List_first(pcbP1List);
+        for (int i = 0; i < List_count(pcbP1List); i++) {
+            pcb_t* currentItem = pcbP1List->pCurrentNode->pItem;
+            if ( currentItem->processState == 0) {
+                printf("Currently Running Process is : %d", currentItem->pid);
+                runningProcessFound = 1;
+                break;
+            }
+            List_next(pcbP1List);
+        }
+    }
+
+    if (runningProcessFound = 0 && List_count(pcbP2List) != 0) {
+        // Searching Low priority list for running process
+        List_first(pcbP2List);
+        for (int i = 0; i < List_count(pcbP2List); i++) {
+            pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
+            if (currentItem->processState == 0 && currentItem->pid == 0) {
+                printf("Init process can't be running.\n");
+            }
+            else if ( currentItem->processState == 0) {
+                printf("Currently Running Process is : %d", currentItem->pid);
+                runningProcessFound = 1;
+                break;
+            }
+            List_next(pcbP2List);
+        }
+    }
+
+    if (runningProcessFound == 0) {
+        printf("No currently running process.\n");
+        return;
+    }
+}
+
+void PCB_init(List* P0list, List* P1list, List* P2list, List* receiveWait, List* blockedList, List* messagesList) {
     pcbP0List = P0list;
     pcbP1List = P1list;
     pcbP2List = P2list;
-    pcbSendWaitList = sendWait;
     pcbReceiveWaitList = receiveWait;
     pcbMessagesList = messagesList;
+    pcbBlockedList = blockedList;
     Create(2);                          // Create Init Process with Priority 0
 }
 
 void PCB_addToReadyList(List* readyList, int pid, int priority, int processState, char* messageStored) {
-    pcb_t* processPCB;
+    pcb_t* processPCB = malloc(sizeof(pcb_t));
+    processPCB->messageStored = malloc(MAX_LEN);
     processPCB->pid = pid;
     processPCB->priority = priority;
     processPCB->processState = processState;
     processPCB->messageStored = messageStored;
-    List_add(readyList, processPCB);
-    printf("Process ID %d has been added to the blocked list \n", pid);
+    List_append(readyList, processPCB);
+    printf("Process ID %d has been added back to priority %d queue \n", pid, processPCB->priority);
 }
 
 void PCB_addToBlockedList(int pid, int priority, int processState, char* messageStored ) {
-    pcb_t* processPCB;
+    pcb_t* processPCB = malloc(sizeof(pcb_t));
+    processPCB->messageStored = malloc(MAX_LEN);
     processPCB->pid = pid;
     processPCB->priority = priority;
     processPCB->processState = processState;
     processPCB->messageStored = messageStored;
-    List_add(pcbBlockedList, processPCB);
+    List_append(pcbBlockedList, processPCB);
     printf("Process ID %d has been added to the blocked list \n", pid);
+}
+
+void PCB_addToReceiveWaitList(int pid, int priority, int processState, char* messageStored ) {
+    pcb_t* processPCB = malloc(sizeof(pcb_t));
+    processPCB->messageStored = malloc(MAX_LEN);
+    processPCB->pid = pid;
+    processPCB->priority = priority;
+    processPCB->processState = processState;
+    processPCB->messageStored = messageStored;
+    List_append(pcbReceiveWaitList, processPCB);
+    printf("Process ID %d has been added to the blocked list \n", pid);
+}
+
+void PCB_addMessageToList(int destinationPid, int sourcePid, char* messageString) {
+
+    pcb_messages* messageIntended = malloc(sizeof(pcb_messages));
+    messageIntended->message = malloc(MAX_LEN);
+    messageIntended->destinationPID = destinationPid;
+    messageIntended->sourcePID = sourcePid;
+    messageIntended->message = messageString;
+    List_append(pcbMessagesList, messageIntended);
+
+}
+
+void PCB_printSendReplyText(int sourcePID, int destinationPID, char* message) {
+    printf("Reply received on pid %d from pid %d : %s\n", destinationPID, sourcePID, message);
 }
 
 int Create(int priority) {
@@ -62,7 +194,8 @@ int Create(int priority) {
         return EXIT_FAILURE;
     }
 
-    pcb_t* processPCB;
+    pcb_t* processPCB = malloc(sizeof(pcb_t));
+    processPCB->messageStored = malloc(MAX_LEN);
     processPCB->priority = priority;
     processPCB->pid = processIDcount;
 
@@ -77,15 +210,15 @@ int Create(int priority) {
     processIDcount++;
 
     if(priority == 0) {
-        List_add(pcbP0List, processPCB);
+        List_append(pcbP0List, processPCB);
         printf("Process ID %d has been sucessfully added to priority list %d\n", processPCB->pid, priority);
     }
-    else if(priority = 1) {
-        List_add(pcbP1List, processPCB);
+    else if(priority == 1) {
+        List_append(pcbP1List, processPCB);
         printf("Process ID %d has been sucessfully added to priority list %d\n", processPCB->pid, priority);
     }
     else if (priority == 2) {
-        List_add(pcbP2List, processPCB);
+        List_append(pcbP2List, processPCB);
         if ( processPCB->pid != 0) {
             printf("Process ID %d has been sucessfully added to priority list %d\n", processPCB->pid, priority);
         }
@@ -104,25 +237,26 @@ int Fork()
     int runningProcessFound = 0;               // Turns 1 if running process is found
     int forkedProcessPid;
 
-
-    // Searching High priority list for running process
-    pcbP0List->pCurrentNode = pcbP0List->pFirstNode;
-    for (int i = 0; i < List_count(pcbP0List); i++) {
-        pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
-        if ( currentItem->processState == 0) {
-            processPriority = currentItem->priority;
-            Create(processPriority);
-            pcb_t* copyItem = pcbP0List->pLastNode->pItem;
-            copyItem->messageStored = currentItem->messageStored;
-            copyItem->processState = currentItem->processState;
-            forkedProcessPid = copyItem->pid;
-            runningProcessFound = 1;
-            break;
+    if (runningProcessFound == 0 && List_count(pcbP0List) != 0) {
+        // Searching High priority list for running process
+        pcbP0List->pCurrentNode = pcbP0List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP0List); i++) {
+            pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
+            if ( currentItem->processState == 0) {
+                processPriority = currentItem->priority;
+                Create(processPriority);
+                pcb_t* copyItem = pcbP0List->pLastNode->pItem;
+                copyItem->messageStored = currentItem->messageStored;
+                copyItem->processState = currentItem->processState;
+                forkedProcessPid = copyItem->pid;
+                runningProcessFound = 1;
+                break;
+            }
+            pcbP0List->pCurrentNode = pcbP0List->pCurrentNode->pNext;
         }
-        pcbP0List->pCurrentNode = pcbP0List->pCurrentNode->pNext;
     }
 
-    if (runningProcessFound == 0) {
+    if (runningProcessFound == 0 && List_count(pcbP1List) != 0) {
         // Searching Med priority list for running process
         pcbP1List->pCurrentNode = pcbP1List->pFirstNode;
         for (int i = 0; i < List_count(pcbP1List); i++) {
@@ -141,12 +275,16 @@ int Fork()
         }
     }
 
-    if (runningProcessFound = 0) {
+    if (runningProcessFound = 0 && List_count(pcbP2List) != 0) {
         // Searching Low priority list for running process
         pcbP2List->pCurrentNode = pcbP2List->pFirstNode;
         for (int i = 0; i < List_count(pcbP2List); i++) {
             pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
-            if ( currentItem->processState == 0) {
+            if (currentItem->processState == 0 && currentItem->pid == 0) {
+                printf("Cannot fork init process.\n");
+            }
+            else if ( currentItem->processState == 0) {
+
                 processPriority = currentItem->priority;
                 Create(processPriority);
                 pcb_t* copyItem = pcbP2List->pLastNode->pItem;
@@ -254,7 +392,7 @@ void Exit() {
                 processSource = 0;
                 break;
             }
-            pcbP0List->pCurrentNode = pcbP0List->pCurrentNode->pNext;
+            List_next(pcbP0List);
         }
     }
 
@@ -270,7 +408,7 @@ void Exit() {
                 processSource = 1;
                 break;
             }
-            pcbP1List->pCurrentNode = pcbP1List->pCurrentNode->pNext;
+            List_next(pcbP1List);
         }
     }
 
@@ -281,15 +419,17 @@ void Exit() {
             pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
             if ( currentItem->processState == 0) {
 
-                if (currentItem->pid == 0 && List_count(pcbP0List) == 0 && List_count(pcbP1List) == 0 && List_count(pcbP2List) == 0) {
+                if (currentItem->pid == 0 && List_count(pcbP0List) == 0 && List_count(pcbP1List) == 0 && List_count(pcbP2List) == 1) {
                     List_remove(pcbP2List);
                     printf("Running init process exited successfully\n");
                     runningProcessFound = 1;
                     processSource = 2;
-                    return;
+                    initExited = true;
+                    break;
                 }
                 else if (currentItem->pid == 0) {
                     printf("Cant exit init process. Other lists are still populated\n");
+                    return;
                 }
 
                 List_remove(pcbP2List);
@@ -298,7 +438,7 @@ void Exit() {
                 processSource = 2;
                 break;
             }
-            pcbP2List->pCurrentNode = pcbP2List->pCurrentNode->pNext;
+            List_next(pcbP2List);
         }
     }
 
@@ -307,44 +447,27 @@ void Exit() {
     if (runningProcessFound == 0) {
         printf("Failure to exit process.\n");
     }
-    else {
-        if (processSource == 0) {
-            pcb_t* currItem = pcbP0List->pCurrentNode->pItem;
-            processID_number = currItem->pid;
-
-            printf("Process %d will now have control of the CPU\n");
-        }
-        // TODO: SCHEDULING
-    }
 
 }
 
-void Quantum();
+void Quantum() {
 
-void PCB_addMessageToList(int destinationPid, int sourcePid, char* messageString) {
-
-    pcb_messages* messageIntended;
-    messageIntended->destinationPID = destinationPid;
-    messageIntended->sourcePID = sourcePid;
-    messageIntended->message = messageString;
-    List_add(pcbMessagesList, messageIntended);
-
+    // Quantum based on FCFS on 3 levels of priority.
+    // Always finishes priority 0 first before going to 1 and 2.
+    // If a new process is added to 0, then that process is next to run.
+    PCB_makeProcessRun();
 }
 
 void Send(int pid, char* messageString) {
     int processFound = 0;               // Turns 1 if intended process is found
 
-    
-
     if (processFound == 0 && List_count(pcbP0List) != 0) {
         // Searching High priority list for intended process
-        pcbP0List->pCurrentNode = pcbP0List->pFirstNode;
+        List_first(pcbP2List);
         for (int i = 0; i < List_count(pcbP0List); i++) {
             pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
             if ( currentItem->processState == 0) {
                 
-                
-
                 currentItem->processState = 2;
                 PCB_addToBlockedList(currentItem->pid, currentItem->priority, currentItem->processState, currentItem->messageStored);
                 List_remove(pcbP0List);
@@ -361,7 +484,7 @@ void Send(int pid, char* messageString) {
 
     if (processFound == 0 && List_count(pcbP1List) != 0) {
         // Searching Med priority list for intended process
-        pcbP1List->pCurrentNode = pcbP1List->pFirstNode;
+        List_first(pcbP1List);
         for (int i = 0; i < List_count(pcbP1List); i++) {
             pcb_t* currentItem = pcbP1List->pCurrentNode->pItem;
             if ( currentItem->processState == 0) {
@@ -383,11 +506,15 @@ void Send(int pid, char* messageString) {
 
     if (processFound == 0 && List_count(pcbP2List) != 0) {
         // Searching Low priority list for intended process
-        pcbP2List->pCurrentNode = pcbP2List->pFirstNode;
+        List_first(pcbP2List);
         for (int i = 0; i < List_count(pcbP2List); i++) {
             pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
+            if ( currentItem->pid == 0) {
+                printf("Init process cannot send a message\n");
+                return;
+            }
+
             if ( currentItem->processState == 0) {
-                
 
                 currentItem->processState = 2;
                 PCB_addToBlockedList(currentItem->pid, currentItem->priority, currentItem->processState, currentItem->messageStored);
@@ -413,10 +540,13 @@ void Receive() {
     int runningProcessFound = 0;
     int receiveProcessPid = -1;
     int runningProcessSource = -1;
+    char* messageStorageForMove;
+    int messageForMoveSourcePid;
+    bool messageFound = false;
 
     if (runningProcessFound == 0 && List_count(pcbP0List) != 0) {
         // Searching High priority list for running process
-        pcbP0List->pCurrentNode = pcbP0List->pFirstNode;
+        List_first(pcbP0List);
         for (int i = 0; i < List_count(pcbP0List); i++) {
             pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
             if ( currentItem->processState == 0) {
@@ -425,13 +555,13 @@ void Receive() {
                 runningProcessSource = 0;
                 break;
             }
-            pcbP0List->pCurrentNode = pcbP0List->pCurrentNode->pNext;
+            List_next(pcbP0List);
         }
     }
 
     if (runningProcessFound == 0 && List_count(pcbP1List) != 0) {
         // Searching Med priority list for running process
-        pcbP1List->pCurrentNode = pcbP1List->pFirstNode;
+        List_first(pcbP1List);
         for (int i = 0; i < List_count(pcbP1List); i++) {
             pcb_t* currentItem = pcbP1List->pCurrentNode->pItem;
             if ( currentItem->processState == 0) {
@@ -440,13 +570,13 @@ void Receive() {
                 runningProcessSource = 1;
                 break;
             }
-            pcbP1List->pCurrentNode = pcbP1List->pCurrentNode->pNext;
+            List_next(pcbP1List);
         }
     }
 
     if (runningProcessFound = 0 && List_count(pcbP2List) != 0) {
         // Searching Low priority list for running process
-        pcbP2List->pCurrentNode = pcbP2List->pFirstNode;
+        List_first(pcbP2List);
         for (int i = 0; i < List_count(pcbP2List); i++) {
             pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
             if ( currentItem->processState == 0) {
@@ -455,75 +585,141 @@ void Receive() {
                 runningProcessSource = 2;
                 break;
             }
-            pcbP2List->pCurrentNode = pcbP2List->pCurrentNode->pNext;
+            List_next(pcbP2List);
         }
     }
-
-    char* messageStorageForMove;
-    int messageForMoveSourcePid;
 
     if (runningProcessFound == 0) {
         printf("No running process found to receive.\n");
     }
     else {
-        if (List_Count(pcbMessagesList) != 0)
+        if (List_count(pcbMessagesList) != 0)
         {
-            pcbMessagesList->pCurrentNode = pcbMessagesList->pFirstNode;
+            List_first(pcbMessagesList);
             for (int i = 0; i < List_count(pcbMessagesList); i++) {
                 pcb_messages* currentItem = pcbMessagesList->pCurrentNode->pItem;
                 if ( currentItem->destinationPID == receiveProcessPid) {
                     messageStorageForMove = currentItem->message;
                     messageForMoveSourcePid = currentItem->sourcePID;
+                    messageFound = true;
                     break;
                 }
-            pcbBlockedList->pCurrentNode = pcbBlockedList->pCurrentNode->pNext;
+            List_next(pcbMessagesList);
             }
 
-            if (runningProcessSource == 0) {
-                pcb_t* pcurrentItem = pcbP0List->pCurrentNode->pItem;
-                pcurrentItem->messageStored = messageStorageForMove;
-                List_remove(pcbMessagesList);
+            if (messageFound) {
+                if (runningProcessSource == 0) {
+                    pcb_t* pcurrentItem = pcbP0List->pCurrentNode->pItem;
+                    pcurrentItem->messageStored = messageStorageForMove;
+                    List_remove(pcbMessagesList);
+                }
+                else if (runningProcessSource == 1) {
+                    pcb_t* pcurrentItem = pcbP1List->pCurrentNode->pItem;
+                    pcurrentItem->messageStored = messageStorageForMove;
+                    List_remove(pcbMessagesList);
+                }
+                else if (runningProcessSource == 2) {
+                    pcb_t* pcurrentItem = pcbP2List->pCurrentNode->pItem;
+                    pcurrentItem->messageStored = messageStorageForMove;
+                    List_remove(pcbMessagesList);
+                }
             }
-            else if (runningProcessSource == 1) {
-                pcb_t* pcurrentItem = pcbP1List->pCurrentNode->pItem;
-                pcurrentItem->messageStored = messageStorageForMove;
-                List_remove(pcbMessagesList);
-            }
-            else if (runningProcessSource == 2) {
-                pcb_t* pcurrentItem = pcbP2List->pCurrentNode->pItem;
-                pcurrentItem->messageStored = messageStorageForMove;
-                List_remove(pcbMessagesList);
+            else {
+                printf("No message waiting for running process, sending process to receive waiting list.\n");
+
+                if (runningProcessSource == 0) {
+                    pcb_t* pcurrentItem = pcbP0List->pCurrentNode->pItem;
+                    PCB_addToReceiveWaitList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
+                    List_remove(pcbP0List);
+                }
+                else if (runningProcessSource == 1) {
+                    pcb_t* pcurrentItem = pcbP1List->pCurrentNode->pItem;
+                    PCB_addToReceiveWaitList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
+                    List_remove(pcbP1List);
+                }
+                else if (runningProcessSource == 2) {
+                    pcb_t* pcurrentItem = pcbP2List->pCurrentNode->pItem;
+                    PCB_addToReceiveWaitList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
+                    List_remove(pcbP2List);
+                }
+                else
+                {
+                    printf("Invalid process source (Error from receive())\n");
+                }
+                
             }
         }
         else {
-            printf("No message waiting for running process, sending process to blocked list.\n");
-
+            printf("Message inbox is empty. Sending process to receive waiting list.\n");
             if (runningProcessSource == 0) {
-                pcb_t* pcurrentItem = pcbP0List->pCurrentNode->pItem;
-                PCB_addToBlockedList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
-                List_remove(pcbP0List);
-            }
-            else if (runningProcessSource == 1) {
-                pcb_t* pcurrentItem = pcbP1List->pCurrentNode->pItem;
-                PCB_addToBlockedList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
-                List_remove(pcbP1List);
-            }
-            else if (runningProcessSource == 2) {
-                pcb_t* pcurrentItem = pcbP2List->pCurrentNode->pItem;
-                PCB_addToBlockedList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
-                List_remove(pcbP2List);
-            }
-            else
-            {
-                printf("Invalid process source (Error from receive())\n");
-            }
-            
+                    pcb_t* pcurrentItem = pcbP0List->pCurrentNode->pItem;
+                    PCB_addToReceiveWaitList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
+                    List_remove(pcbP0List);
+                }
+                else if (runningProcessSource == 1) {
+                    pcb_t* pcurrentItem = pcbP1List->pCurrentNode->pItem;
+                    PCB_addToReceiveWaitList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
+                    List_remove(pcbP1List);
+                }
+                else if (runningProcessSource == 2) {
+                    pcb_t* pcurrentItem = pcbP2List->pCurrentNode->pItem;
+                    PCB_addToReceiveWaitList(pcurrentItem->pid, pcurrentItem->priority, pcurrentItem->processState, pcurrentItem->messageStored);
+                    List_remove(pcbP2List);
+                }
+                else
+                {
+                    printf("Invalid process source (Error from receive())\n");
+                }
         }
     }
-
 }
 
 void Reply(int pid, char* messageString) {
+
+    int runningProcessFound = 0;
+    int sourcePID;
+
+    if (runningProcessFound == 0 && List_count(pcbP0List) != 0) {
+        // Searching High priority list for running process
+        List_first(pcbP0List);
+        for (int i = 0; i < List_count(pcbP0List); i++) {
+            pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
+            if ( currentItem->processState == 0) {
+                sourcePID = currentItem->pid;
+                break;
+            }
+            List_next(pcbP0List);
+        }
+    }
+
+    if (runningProcessFound == 0 && List_count(pcbP1List) != 0) {
+        // Searching Med priority list for running process
+        List_first(pcbP1List);
+        for (int i = 0; i < List_count(pcbP1List); i++) {
+            pcb_t* currentItem = pcbP1List->pCurrentNode->pItem;
+            if ( currentItem->processState == 0) {
+                sourcePID = currentItem->pid;
+                break;
+            }
+            List_next(pcbP1List);
+        }
+    }
+
+    if (runningProcessFound = 0 && List_count(pcbP2List) != 0) {
+        // Searching Low priority list for running process
+        List_first(pcbP2List);
+        for (int i = 0; i < List_count(pcbP2List); i++) {
+            pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
+            if (currentItem->processState == 0 && currentItem->pid == 0) {
+                printf("Init process can't be running.\n");
+            }
+            else if ( currentItem->processState == 0) {
+                sourcePID = currentItem->pid;
+                break;
+            }
+            List_next(pcbP2List);
+        }
+    }
 
     int processFound = 0;    
      if (List_count(pcbBlockedList) != 0) {
@@ -545,11 +741,13 @@ void Reply(int pid, char* messageString) {
                     PCB_addToReadyList(pcbP2List, currentItem->pid, currentItem->priority, currentItem->processState, currentItem->messageStored);
                 }
 
+                PCB_printSendReplyText(sourcePID, currentItem->pid, currentItem->messageStored);
+
                 List_remove(pcbBlockedList);
                 processFound = 1;
                 break;
             }
-            pcbP0List->pCurrentNode = pcbP0List->pCurrentNode->pNext;
+           List_next(pcbBlockedList);
         }
     }
 
@@ -557,7 +755,7 @@ void Reply(int pid, char* messageString) {
         printf("No process with pid %d can be found in the blocked list.\n", pid);
     }
     else {
-        printf("Reply to process pid %d has been sent sucessfully, pid %d has been sent back to the ready queue.\n", pid);
+        printf("Reply to process pid %d has been sent sucessfully, pid %d has been sent back to the ready queue.\n", pid, pid);
     }
 }
 
@@ -579,6 +777,120 @@ void SemaphoreP(int semaphoreId);
 
 void SemaphoreV(int semaphoreId);
 
-void Procinfo(int pid);
+void Procinfo(int pid) {
+    bool found = false;
 
-void Totalinfo();
+    if(pid == 0) {
+        printf("Process pid 0 from priority 2 queue info:.\n");
+        printf("PID: 0 (Init process)\n");
+        printf("Message Stored: N/A\n");
+        printf("Process Priority: Low\n");
+        return;
+    }
+
+    if (!found && List_count(pcbP0List) != 0) {
+        pcbP0List->pCurrentNode = pcbP0List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP0List); i++) {
+            pcb_t* currentItem = pcbP0List->pCurrentNode->pItem;
+            if ( currentItem->pid == pid) {
+                printf("Process pid %d from priority 0 queue info:.\n", currentItem->pid);
+                printf("PID: %d\n", currentItem->pid);
+                printf("Message Stored: %s\n", currentItem->messageStored);
+                printf("Process Priority: High\n");
+
+                if (currentItem->processState == 0) {
+                    printf("Process Status: Running\n");
+                }
+                else if (currentItem->processState == 1) {
+                    printf("Process Status: Ready\n");
+                }
+                found = true;
+                break;
+            }
+            List_next(pcbP0List);
+        }
+    }
+    if (!found && List_count(pcbP1List) != 0) {
+        pcbP1List->pCurrentNode = pcbP1List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP1List); i++) {
+            pcb_t* currentItem = pcbP1List->pCurrentNode->pItem;
+            if ( currentItem->pid == pid) {
+                printf("Process pid %d from priority 1 queue info:.\n", currentItem->pid);
+                printf("PID: %d\n", currentItem->pid);
+                printf("Message Stored: %s\n", currentItem->messageStored);
+                printf("Process Priority: Medium\n");
+
+                if (currentItem->processState == 0) {
+                    printf("Process Status: Running\n");
+                }
+                else if (currentItem->processState == 1) {
+                    printf("Process Status: Ready\n");
+                }
+                found = true;
+                break;
+            }
+            List_next(pcbP1List);
+        }
+    }
+    if (!found && List_count(pcbP2List) != 0) {
+        pcbP2List->pCurrentNode = pcbP2List->pFirstNode;
+        for (int i = 0; i < List_count(pcbP2List); i++) {
+            pcb_t* currentItem = pcbP2List->pCurrentNode->pItem;
+            if ( currentItem->pid == pid) {
+                printf("Process pid %d from priority 0 queue info:.\n", currentItem->pid);
+                printf("PID: %d\n", currentItem->pid);
+                printf("Message Stored: %s\n", currentItem->messageStored);
+                printf("Process Priority: Low\n");
+
+                if (currentItem->processState == 0) {
+                    printf("Process Status: Running\n");
+                }
+                else if (currentItem->processState == 1) {
+                    printf("Process Status: Ready\n");
+                }
+                found = true;
+                break;
+            }
+            List_next(pcbP2List);
+        }
+    }
+    if (!found && List_count(pcbBlockedList) != 0) {
+        pcbBlockedList->pCurrentNode = pcbBlockedList->pFirstNode;
+        for (int i = 0; i < List_count(pcbBlockedList); i++) {
+            pcb_t* currentItem = pcbBlockedList->pCurrentNode->pItem;
+            if ( currentItem->pid == pid) {
+                printf("Process pid %d from Blocked queue info:.\n", currentItem->pid);
+                printf("PID: %d\n", currentItem->pid);
+                printf("Message Stored: %s\n", currentItem->messageStored);
+
+                if (currentItem->priority == 0) {
+                    printf("Process Priority: High\n");
+                }
+                else if (currentItem->priority == 1)
+                {
+                    printf("Process Priority: Medium\n");
+                }
+                else if (currentItem->priority == 2) {
+                    printf("Process Priority: Low\n");
+                }
+
+                printf("Process Status: Blocked\n");
+                found = true;
+                break;
+            }
+            List_next(pcbBlockedList);
+        }
+    }
+    if (!found) {
+        printf("There is no processes with pid %d in any queue\n", pid);
+    }
+}
+
+void Totalinfo() {
+    printf("Total processes in High priority queue: %d\n", List_count(pcbP0List));
+    printf("Total processes in Medium priority queue: %d\n", List_count(pcbP1List));
+    printf("Total processes in Low priority queue: %d\n", List_count(pcbP2List));
+    printf("Total processes in Blocked queue: %d\n", List_count(pcbBlockedList));
+    printf("Total messages waiting in message queue: %d\n", List_count(pcbMessagesList));
+
+}
